@@ -1,0 +1,156 @@
+---
+title: "Chap4 - KNN"
+author: "Me"
+date: "8/6/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r}
+library(ISLR)
+library(tidyverse)
+library(modelr)
+library(class)
+```
+
+### K-Nearest neighbors
+
+We will now perform KNN using knn() function, which is part of the class library. The function works differently from the other model fitting functions. Rather than a two-step approach in which we first fit the model and use the model to make predictions, knn() forms prediction on a single command. it requires 4 inputs
+
+1. matrix containing the predictors associated with the training data labeld as train.X below.
+2. A matrix containing the predictors associated with the data for which we wish to make predictions.
+3. A vector containing the class labels for training observations train.direction
+4. A value for K, the number of nearest neighbors
+
+We will use cbind() to bind lag1 and lag2 together into two matrices. one for the training set and other for test set
+```{r}
+colnames(Smarket) <- tolower(colnames(Smarket)) 
+attach(Smarket)
+
+train <- (year < 2005)
+Smarket.2005 <- Smarket[!train, ] #Subset the original data to keep data with train == 0
+direction.2005 <- Smarket.2005[,"direction"]
+
+#This works when you attach
+attach(Boston)
+crim
+
+
+train.X <- cbind(lag1, lag2)[train,]
+test.X <- cbind(lag1, lag2)[!train,]
+train.Direction <- direction[train]
+```
+
+knn() function can be used to predict market's movement for the dates in 2005. We set a random seet before we apply knn() because if several observations tied as nearest neighbors, then R will randomly break the tie. Therefore, a seed must be set to ensure reproducibility
+
+```{r}
+set.seed(1)
+knn.pred = knn(train.X, test.X, train.Direction, k = 1)
+table(knn.pred, direction.2005)
+```
+The results of k = 1 is not very goo since only 50% of the observations are predicted correctly
+
+Use k = 3
+```{r}
+knn.pred3 = knn(train.X, test.X, train.Direction, k = 3)
+table(knn.pred3, direction.2005)
+```
+53.6%
+
+
+### Application to Caravan Insurance Data
+
+
+Apply the KNN approach to Caravan Dataset. This data includes 85 predictors that measures 5822 individuals. The response variable is purchase, which indicates whether or not a given individual purchases a caravan insurance policy. In this dataset, only 6% of the poeple purchased caravan insurance
+
+```{r}
+Caravan
+attach(Caravan)
+summary(Purchase)
+```
+
+Because the KNN classifier predicts the given class of a test observation by the observations narest to it, the scale of the variables matter. Any variables that on large scale will have much effect on the distance between observations. A good way to handle this problem is standardize the data. We exclude column 86 which is the purchase
+
+```{r}
+standardized.X = scale(Caravan[-86])
+var(Caravan[,1])
+var(Caravan[,2])
+var(standardized.X[,1])
+var(standardized.X[,2])
+```
+
+We now split the observations. the test set will the first 1000 observations and the remaining are the training set. We fit a KNN model on the training data with k=1 and evaluate the performance on test data
+
+```{r}
+test = 1:1000
+train.X = standardized.X[-test,]
+test.X = standardized.X[test,]
+train.Y = Purchase[-test]
+test.Y = Purchase[test]
+
+set.seed(1)
+knn.pred1 = knn(train.X, test.X, train.Y, k = 1)
+table(knn.pred1, test.Y)
+mean(test.Y != knn.pred1)
+```
+KNN error rate is just 12%. At the first glance it may seem good. However, since only 6% of customers purchased the insurance. we could get the error rate down to 6% by always predicting No. 
+
+Turns out that KNN with k = 1 does a better job than predicting at random. AMong 77 customers that knn predicted as yes. 9 or 11.7% actually do purchase insurance
+
+Use k = 3. 19% acuracy
+
+```{r}
+set.seed(1)
+knn.pred3 = knn(train.X, test.X, train.Y, k = 3)
+table(knn.pred3, test.Y)
+```
+K = 5
+```{r}
+set.seed(1)
+knn.pred5 = knn(train.X, test.X, train.Y, k = 5)
+table(knn.pred5, test.Y)
+```
+
+AS comparison let's try to fit GLM
+
+```{r}
+glm.fits = glm(Purchase~., data = Caravan, family = binomial, subset = -test)
+
+test = Caravan[test,]
+
+test %>%
+  add_predictions(glm.fits, type = 'response') %>%
+  select(pred, Purchase) %>%
+  mutate(PredPurchase = ifelse(pred >.5, 'Yes','No')) %>%
+  count(Purchase, PredPurchase) %>%
+  spread(Purchase, n, fill = 0)
+```
+Only 7 are predicted to purchase.
+
+Make cutoff 25%
+
+```{r}
+test %>%
+  add_predictions(glm.fits, type = 'response') %>%
+  select(pred, Purchase) %>%
+  mutate(PredPurchase = ifelse(pred >.25, 'Yes','No')) %>%
+  count(Purchase, PredPurchase) %>%
+  spread(Purchase, n)
+```
+
+11/33 will actually buy or 33%. This is better than just random guessing
+
+
+
+
+
+
+
+
+
+
+

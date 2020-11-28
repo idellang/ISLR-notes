@@ -1,0 +1,402 @@
+---
+title: "Chapter 4 Exercises"
+author: "Me"
+date: "8/6/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+```{r}
+library(ISLR)
+library(MASS)
+library(tidyverse)
+library(modelr)
+```
+Weekly dataset is similar to Smarket data except that it contains 1089 weekly returns for 21 years. 
+
+```{r}
+str(Weekly)
+summary(Weekly)
+```
+
+
+```{r}
+cor(Weekly %>%
+      select(-Direction))
+```
+
+Use the full dataset to perform logistic regression with direction as response. Use summary functions to produce the results
+
+```{r}
+log_mod = glm(Direction~Lag1+Lag2+Lag3+Lag4+Lag5+Volume, data = Weekly, family = binomial)
+summary(log_mod)
+```
+Compute the confusion matrix and overall fraction of correct predictions
+
+```{r}
+WeeklyPred = Weekly %>%
+  add_predictions(log_mod, type = 'response') %>%
+  mutate(PredDirection = ifelse(pred > .5, 'Up','Down'))
+
+WeeklyPred%>%
+  count(Direction, PredDirection) %>%
+  spread(Direction, n)
+```
+
+From our model, it seems that we are predicting UP most of the time.
+
+```{r}
+WeeklyPred %>%
+  summarise(mean = mean(PredDirection==Direction))
+```
+
+Fit the logistic regression on training data from 1990 to 2008 with lag2 as the only predictor. Compute the confusion matrix and fraction of correct predictions for 2009 and 2010
+
+
+
+```{r}
+train = Weekly %>%
+  filter(Year <= 2008)
+
+test = Weekly %>%
+  filter(Year > 2008)
+
+log_mod2 = glm(Direction ~ Lag2, data = train, family = binomial)
+
+
+log_mod2_test = test %>%
+  add_predictions(log_mod2, type = 'response') %>%
+  mutate(PredDirection = ifelse(pred > .5, 'Up','Down'))
+
+log_mod2_test %>%
+  count(Direction, PredDirection) %>%
+  spread(Direction, n)
+```
+
+
+```{r}
+log_mod2_test %>%
+  summarise(correct = mean(Direction==PredDirection))
+```
+
+#Using LDA
+
+```{r}
+model_lda = lda(Direction ~ Lag2, data = Weekly)
+
+probs = data.frame(probs = predict(model_lda, test))
+
+probs %>%
+  cbind(test) %>%
+  count(probs.class, Direction) %>%
+  spread(Direction, n)
+```
+
+
+```{r}
+probs %>%
+  cbind(test) %>%
+  summarise(score = mean(probs.class==Direction))
+```
+
+
+#Try QDA
+
+```{r}
+model_qda = qda(Direction ~ Lag2, data = Weekly)
+
+probs = data.frame(probs = predict(model_qda, test))
+
+probs %>%
+  cbind(test) %>%
+  count(probs.class, Direction)
+```
+
+```{r}
+probs %>%
+  cbind(test) %>%
+    summarise(score = mean(probs.class==Direction))
+```
+
+#KNN
+
+```{r}
+library(class)
+set.seed(1)
+attach(Weekly)
+
+train.X = as.matrix(train[,"Lag2"])
+train.Y = as.matrix(train[,"Direction"])
+test.X <- as.matrix(test[,"Lag2"])
+test.Y <- as.matrix(test[,"Direction"])
+
+knn.pred1 = knn(train.X, test.X, train.Y, k = 1)
+table = table(knn.pred1, test.Y)
+
+mean(knn.pred1 == test.Y)
+```
+
+```{r}
+k = 1:50
+
+data = tibble(NULL)
+
+score = double(50)
+index = double(50)
+for (i in 1:50){
+  index[[i]] = i
+  knn.pred = knn(train.X, test.X, train.Y, k = i)
+  score[[i]] = mean(knn.pred == test.Y)
+}
+
+results_df = tibble(
+  k = index,
+  score = score
+)
+
+results_df %>%
+  ggplot(aes(k, score))+
+  geom_point()
+```
+The highest score was recorded on k = 47. However, its score is lower than the score of the LDA and logistic
+
+
+
+In the next problem, we will develop a model to predict whether a car gets high or low mileage
+
+```{r}
+auto = Auto
+auto = auto %>%
+  mutate(mpg01 = ifelse(mpg >= median(mpg), 1, 0))
+
+pairs(auto %>% select(-name))
+```
+
+```{r}
+library(corrplot)
+corrplot(cor(auto %>%
+      select(-name)), method = 'shade', addCoef.col = 'black')
+```
+Training data 60%, test set 40%
+```{r}
+n <- nrow(auto)
+sample.inds<-sample.int(n, round(n*.6))
+
+train = auto[sample.inds, ]
+test = auto[-sample.inds,]
+```
+
+
+
+Perform LDA on the training data to predict mpg01. what is the test error?
+
+```{r}
+model_lda = lda(mpg01 ~ cylinders+ displacement+ horsepower+ weight+ origin+ year, data = auto)
+
+model_predictions = data.frame(probs = predict(model_lda, test))
+
+model_predictions %>%
+  cbind(test %>% select(mpg01)) %>%
+  count(probs.class, mpg01) %>%
+  spread(mpg01, n)
+
+
+```
+
+```{r}
+model_predictions %>%
+  cbind(test %>% select(mpg01)) %>%
+  summarise(score = mean(probs.class != mpg01))
+```
+
+LDA has 9.9 percent error
+
+### use QDA
+
+```{r}
+model_qda = qda(mpg01 ~ cylinders+ displacement+ horsepower+ weight+ origin+ year, data = auto)
+
+model_predictions = data.frame(probs = predict(model_qda, test))
+
+model_predictions %>%
+  cbind(test %>% select(mpg01)) %>%
+  count(probs.class, mpg01) %>%
+  spread(mpg01, n)
+
+model_predictions %>%
+  cbind(test %>% select(mpg01)) %>%
+  summarise(error = mean(probs.class != mpg01))
+```
+
+8.2 percent error on QDA
+
+#Use logistic regression
+
+```{r}
+model_log = glm(mpg01 ~ cylinders+ displacement+ horsepower+ weight+ origin+ year, data = auto, family = binomial())
+
+summary(model_log)
+
+model_predictions = data.frame(probs = predict(model_log, test))
+
+model_predictions %>%
+  cbind(test %>% select(mpg01)) %>%
+  mutate(pred_mpg01 = ifelse(probs>.5, 1, 0)) %>%
+  count(mpg01, pred_mpg01)%>%
+  spread(pred_mpg01,n)
+
+model_predictions %>%
+  cbind(test %>% select(mpg01)) %>%
+  mutate(pred_mpg01 = ifelse(probs>.5, 1, 0)) %>%
+  summarise(score = mean(mpg01 != pred_mpg01))
+```
+
+7.6% error. 
+
+KNN Test
+
+```{r}
+attach(auto)
+train.X <- cbind(cylinders, displacement,horsepower,weight,origin,year)[sample.inds,]
+test.X <- cbind(cylinders, displacement,horsepower,weight,origin,year)[-sample.inds,]
+train.Y = mpg01[sample.inds]
+test.Y = mpg01[-sample.inds]
+
+set.seed(1)
+knn.pred1 = knn(train.X, test.X, train.Y, k = 1)
+table(knn.pred1, test.Y)
+
+mean(knn.pred1 != test.Y)
+```
+
+```{r}
+error = double(50)
+index = double(50)
+for (i in 1:50){
+  index[[i]] = i
+  knn.pred = knn(train.X, test.X, train.Y, k = i)
+  score[[i]] = mean(knn.pred != test.Y)
+}
+
+results_df = tibble(
+  k = index,
+  score = score
+)
+
+results_df %>%
+  ggplot(aes(k, score))+
+  geom_point()+
+  geom_line()+
+  expand_limits(y = 0)
+```
+
+
+Lowest error on logistic regression. 
+
+
+Functions
+
+```{r}
+power = function() 2^3
+power()
+
+power2 = function(x,a){
+  x^a
+}
+
+power2(10,3)
+
+power3 = function(x,a){
+  result = x^a
+  return(result)
+}
+
+a = power3(3,8)
+a
+
+x = 1:10
+plot(x , power3(x, 2))
+
+plotpower = function(x,a){
+  plt = plot(x , power3(x, a))
+  return(plt)
+}
+
+plotpower(1:10, 4)
+```
+
+Using boston dataset. fit classification models to determine whether a suburb has crime rate below or above the median
+
+```{r}
+boston = Boston
+
+boston = boston %>%
+  mutate(crim = ifelse(crim >= median(crim), 1, 0))
+
+n = nrow(boston)
+sample = sample.int(n, round(n*.6))
+
+train = boston[sample,]
+test = boston[-sample,]
+```
+
+
+```{r}
+corrplot(cor(boston), method = 'shade', addCoef.col = 'black')
+```
+indus,
+nox
+zn
+age
+dis
+rad
+tax
+lstat
+
+```{r}
+model_log = glm(crim~ indus  +zn + age + dis +rad + tax + lstat, data = train, family = binomial)
+summary(model_log)
+```
+
+
+```{r}
+test %>%
+  add_predictions(model_log, type = 'response') %>%
+  select(crim, pred) %>%
+  mutate(predCrim = ifelse(pred > .5, 1, 0)) %>%
+  summarise(error = mean(predCrim != crim))
+  
+  
+```
+
+try to use all variables
+```{r}
+model_log2 = glm(crim~ . -crim, data = train, family = binomial)
+test %>%
+  add_predictions(model_log2, type = 'response') %>%
+  select(crim, pred) %>%
+  mutate(predCrim = ifelse(pred > .5, 1, 0)) %>%
+  summarise(error = mean(predCrim != crim))
+```
+7 percent error if all are used
+
+Try LDA
+```{r}
+model_lda = lda(crim ~ . -crim, data = train)
+probs = data.frame(probs = predict(model_lda, test))
+
+probs %>%
+  cbind(test %>% select(crim)) %>%
+  summarise(error = mean(probs.class != crim))
+```
+
+
+
+
+
+

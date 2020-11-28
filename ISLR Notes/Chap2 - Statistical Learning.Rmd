@@ -1,0 +1,228 @@
+---
+title: "Statistical Learning"
+author: "Me"
+date: "8/3/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+
+```{r}
+library(ISLR)
+library(dplyr)
+library(readr)
+library(ggplot2)
+library(GGally)
+library(mosaic)
+library(manipulate)
+```
+
+
+```{r}
+data(Auto)
+
+Auto %>%
+  slice(1:10)
+```
+
+
+
+```{r}
+dim(Auto)
+colnames(Auto)
+str(Auto)
+```
+### Summary statistics
+```{r}
+summary(Auto)
+```
+
+Origin might be better as factor
+```{r}
+Auto = Auto %>%
+  mutate(origin = factor(origin))
+summary(Auto)
+```
+
+Statistics for a particular variable using favstats
+```{r}
+Auto %>%
+  favstats(~mpg)
+```
+
+Or just look at one particular statistic
+```{r}
+mean(~displacement, data=Auto)
+```
+
+## Plotting
+
+```{r}
+ggplot(Auto, aes(x = cylinders, y = mpg)) + 
+  geom_point()
+```
+Cylinders are treated as numeric so we convert it to factor
+
+```{r}
+Auto = Auto %>%
+    mutate(cylinders = factor(cylinders))
+
+ggplot(Auto, aes(x = cylinders, y = mpg)) + 
+  geom_point()
+```
+Produce a boxplot
+```{r}
+ggplot(Auto) + geom_boxplot(aes(x=cylinders, y=mpg)) + xlab("Cylinders") + ylab("MPG")
+```
+
+Create ggpairs
+```{r}
+Auto %>% select(-cylinders, -origin, -name) %>%
+    ggpairs()
+```
+
+
+#College Dataset
+
+```{r}
+College = read_csv('College.csv')
+
+College
+```
+
+
+Use summary function to produce numerical summary
+```{r}
+str(College)
+
+College = College %>%
+  mutate(Private = factor(Private))
+
+summary(College)
+```
+
+Boxplot of outstate vs private
+
+```{r}
+College %>%
+  ggplot(aes(Private, Outstate))+
+  geom_boxplot()
+```
+
+Create a new qualitative variable called Elite by binning the top10perc variable. 
+
+```{r}
+College = College %>%
+  mutate(Elite = ifelse(College$Top10perc >= 50, 'Yes', 'No'),
+         Elite = factor(Elite))
+
+summary(College$Elite)
+
+College %>%
+  ggplot(aes(Elite, Outstate))+
+  geom_boxplot()
+```
+
+### Auto Dataset
+
+Which predictors are quantitative and which are qualtitatve
+
+
+
+```{r}
+Auto = Auto %>%
+  mutate(year = factor(year))
+str(Auto)
+```
+
+```{r}
+Auto_dbl = Auto %>%
+  select(mpg, displacement, horsepower, weight, acceleration)
+
+map(Auto_dbl, range)
+
+map(Auto_dbl, mean)
+
+map(Auto_dbl, sd)
+```
+
+Now remove observations 10 to 85. What is the range, mean, and sd
+
+```{r}
+Auto_subset_dbl = Auto %>%
+  slice(-(10:85)) %>%
+  select(mpg, displacement, horsepower, weight, acceleration)
+
+map(Auto_subset_dbl, range)
+
+map(Auto_subset_dbl, mean)
+
+map(Auto_subset_dbl, sd)
+```
+
+```{r}
+ggpairs(Auto %>% select(-name))
+```
+
+
+
+### Boston Dataset
+
+```{r}
+library(MASS)
+Boston %>% View()
+?Boston
+```
+
+Pairwise scatterplots
+```{r}
+pairs(Boston)
+```
+
+```{r}
+Boston %>%
+  mutate(higher_than_mean = ifelse(crim > mean(crim), 'Yes','No')) %>%
+  filter(higher_than_mean=='Yes')
+```
+
+How many suburbs are chas == 1
+
+```{r}
+Boston %>%
+  filter(chas == 1)
+```
+
+
+What is the median pupil teacher ratio among towns
+
+```{r}
+median(Boston$ptratio)
+```
+
+which suburb has the lowest median owner occupied homes
+```{r}
+Boston %>%
+  filter(age == min(age))
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

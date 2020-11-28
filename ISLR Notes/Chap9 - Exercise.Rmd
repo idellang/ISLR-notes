@@ -1,0 +1,403 @@
+---
+title: "Chap9 - Exercise"
+author: "Me"
+date: "8/20/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+# Q4
+
+Generate a simulated two-class dataset with 100 obs and two features in which there is a visible but non-linear separation between the two classes. Show that in this setting, a support vector machine with a polynomial kernel (d>1) or will outperform a support vector classifier on training data. Which technique performs best on the test data? Make plots and report training and test error rates to back up your assertions
+
+```{r}
+library(e1071)
+library(dplyr)
+library(ggplot2)
+set.seed(1)
+x = rnorm(100)
+y = 4 * x^2 + 1 + rnorm(100)
+class = sample(100,50)
+y[class] = y[class] +3
+y[-class] = y[-class] - 3
+
+plot(x[class], y[class], col = 'red', xlab = 'X', ylab = 'Y', ylim = c(-6,30))
+points(x[-class],y[-class], col ='blue')
+```
+Now we fit a support vector classifier on the training data
+
+```{r}
+set.seed(1)
+z = rep(-1, 100)
+z[class] = 1
+
+data = data.frame(x =x , y=y, z= as.factor(z))
+data.train = data %>%
+  sample_frac(.5)
+data.test = data %>%
+  setdiff(data.train)
+
+svm.linear = svm(z ~., data = data.train, kernel = 'linear', cost = 10)
+plot(svm.linear, data.train)
+```
+
+```{r}
+table(pred = predict(svm.linear, data.test), truth = data.train$z)
+```
+There are many misclassified observations. The accuracy is 46%
+
+We fit a polynomial kernel
+
+```{r}
+svm.poly = svm(z ~., data = data.train, kernel = 'polynomial', cost = 10)
+plot(svm.poly, data.train)
+```
+```{r}
+table(predict = predict(svm.poly, data.test), truth = data.test$z)
+```
+Polynomial kernel is better with 78% accuracy.
+
+
+
+Lastly, fit a radial svm with gamma = 1
+
+```{r}
+svm.radial = svm(z ~., data = data.train, kernel = 'radial', gamma = 1, cost = 10)
+plot(svm.radial, data.train)
+```
+```{r}
+table(pred = predict(svm.radial, data.test), truth = data.test$z)
+```
+Highest accuracy with only 1 wrong prediction.
+
+
+#Q5 
+
+We have seen that we can fit an SVM with a non linear kernel in order to perform classification using a nonlinear decision boundary. We will now see that we can also obtain a non linear decision boundary by performing logistic regression using non linear transformation
+
+Let's generate a dataset with n = 500 and p = 2, such that observation belong to two classes with a quadratic decision boundary between them
+
+```{r}
+x1 = runif(500) -.5
+x2 = runif(500) -.5
+y = 1*(x1^2 - x2^2 > 0)
+y = factor(y)
+data = data.frame(y,x1,x2)
+```
+
+Plot observations
+
+```{r}
+ggplot(data, aes(x1,x2, color = y))+
+  geom_point()
+```
+
+Fit a logistic regression model on the data using X1 and X2 as predictors
+
+```{r}
+library(glmnet)
+log_mod = glm(y ~ ., family = binomial, data = data)
+```
+
+
+Apply this model to the training data in order to obtain a predicted class label for each training obs. Plot the observations according to predicted class labels. The decision boundary should be linear.
+
+```{r}
+log_pred = predict(log_mod, type = 'response') 
+log_pred = 1*(log_pred>.5)
+plot(x1, x2, col = log_pred+1)
+```
+
+We can see that there's a linear boundary on the predictions. 
+
+Now fit a logistic regression model to the data using non linear functions of x1 and x2
+
+```{r}
+log_nl_mod = glm(y~ poly(x1, d = 3) * poly(x2, d = 3), family = binomial)
+summary(log_nl_mod)
+```
+
+```{r}
+log_pred2 = predict(log_nl_mod, type ='response')
+log_pred2 = 1*(log_pred2>.5)
+plot(x1,x2, col = log_pred2+1)
+```
+
+The non linear logistic is very similar to the boundary of the training data.
+
+Apply SVM to the data. Obtain a class prediction for each training observation. Plot the observations, color according to plot labels
+
+```{r}
+svm_lin_mod = svm(y~ x1 +x2, data = data, kernel = 'linear')
+svm_lin_pred = predict(svm_lin_mod)
+plot(x1, x2, col = svm_lin_pred)
+```
+
+All were classified as 0 
+
+Fit a non linear kernel using SVM
+
+```{r}
+svm_poly_mod = svm(y ~ x1 + x2, data = data, kernel = 'polynomial', d =3, cost = 1)
+svm_pred_poly = predict(svm_poly_mod)
+plot(x1, x2, col = svm_pred_poly)
+```
+
+Using a radial kernel
+
+```{r}
+svm_rad_mod  = svm(y ~ x1 + x2, data = data, kernel = 'radial', cost = 1)
+svm_pred_rad = predict(svm_rad_mod)
+plot(x1, x2, col = svm_pred_rad)
+```
+Radial kernel model does a good job in classifying the training data
+
+Try a transformed linear kernel
+
+
+```{r}
+svm_trn_mod = svm(y ~ poly(x1, d = 2)* poly(x2, d = 2), data = data, kernel = 'linear')
+svm_trn_pred = predict(svm_trn_mod)
+plot(x1, x2, col = svm_trn_pred)
+```
+
+A transformed linear kernel does a pretty good job too.
+
+
+#Q6 
+
+At the end of section 9.6.1, it is claimed that in the case of data that just barely linearly separable, a support vector classifier with small value of cost misclassifies a couple of training obs may perform better on test data than one with huge value of cost that does not misclassify any training obs. You will now investigate this claim
+
+Generate two class data with p = 2 in such a way that the classes are barely linearly separable. Compure cross validation error for support vector classifier ith a range of cost values. How many training error are misclassified for each value of cost considered, and how does this relate to the cross validation obtained.
+
+```{r}
+set.seed(927)
+n = 50
+x = matrix(runif(n*20), ncol = 2)
+y = factor(x[,2]>x[,1])
+data = data.frame(x,y)
+cost = 10^seq(-3,3, by = .5)
+```
+
+```{r}
+res = tune(svm, y ~ X1 + X2, data = data, kernel = 'linear', ranges = list(cost = cost))
+summary(res)
+```
+
+
+```{r}
+res$best.model
+```
+Generate an appropriate test data set, and compute the test errors corresponding to each value of cost considered. Which value leads to fewest test errors, and how does this compare to the value of cost that yields the lowest training errors
+
+```{r}
+set.seed(1)
+best_cost = res$best.parameters$cost
+test.x = matrix(runif(10*n*2), ncol = 2)
+test.y = factor(test.x[,2]>test.x[,1])
+test.data = data.frame(test.x , y = test.y)
+cost_perf = double(length(cost))
+
+for (i in seq_along(cost)){
+  c = cost[i]
+  svm_mod = svm(y ~ X1 + X2, data = data, kernel = 'linear', cost = c)
+  pred.y = predict(svm_mod, test.data)
+  cost_perf[i] = mean(pred.y == test.data$y)
+}
+
+data.frame(cost, cost_perf)
+```
+
+```{r}
+svm_best = svm(y ~ X1 + X2, data = data, kernel = 'linear', cost = best_cost)
+svm_best_pred = predict(svm_best, test.data)
+mean(svm_best_pred == test.data$y)
+```
+Apparently, the best cost really has the best performance
+
+
+In this problem, you will use support vector approaches in order to predict whether a given car gets a high or low mileage
+
+Create a binary variable that takes on 1 for cars with above median mileage and 0 for cars with below median
+```{r}
+library(ISLR)
+auto = Auto %>%
+  mutate(mpg01 = ifelse(mpg > median(mpg), 1 , 0)) %>%
+  select(-mpg)
+```
+
+
+Fit a support vector classifier to the data with various values of cost. Report cross validation errors
+
+```{r}
+set.seed(1)
+lin_res = tune(svm, mpg01 ~., data = auto, ranges = list(cost = c(.1, 1, 5, 10, 100)), kernel = 'linear')
+summary(lin_res)
+```
+
+1 has the lowest error
+
+Now repeat the previous step and use radial and polynomial kernels with different values of gamma and degree
+
+```{r}
+library(dplyr)
+library(tidyr)
+set.seed(2)
+gammas = 10^(seq(-3,-1,by=1))
+rad_res = tune(svm, mpg01 ~., data = auto, ranges = list(cost = c(.1,1,5,10,100), gamma = gammas), kernel = 'radial')
+summary(rad_res)
+```
+
+Lowest error at cost = 5 and gamma = .1
+
+```{r}
+set.seed(3)
+poly_res = tune(svm, mpg01 ~., data = auto, ranges = list(cost = c(.1,1,5,10,100), d = 2:4), kernel = 'polynomial')
+summary(poly_res)
+```
+
+Lowest error is on cost = 100 and d = 3
+
+
+Make some plots to back up assertions
+
+plot weight and displacement
+
+```{r}
+svm.lin = lin_res$best.model
+plot(svm.lin, auto, weight ~ displacement)
+```
+
+
+```{r}
+svm.rad = rad_res$best.model
+plot(svm.rad, auto, weight ~ displacement)
+```
+
+
+```{r}
+svm.poly = poly_res$best.model
+plot(svm.poly, auto, weight ~ displacement)
+```
+
+
+8. This package involves the OJ dataset. 
+
+Create a traing set containing a random sample of 800 obs and test set containing the remaining
+
+```{r}
+oj.train = OJ %>%
+  sample_n(800)
+
+oj.test = OJ %>%
+  setdiff(oj.train)
+```
+
+Fit a support vector classifier on the training data using `cost  = .01` with Purchase as the response and the other variables as predictors. Use the summary function to produce summary statistics and describe the results obtained
+
+```{r}
+svm_oj = svm(Purchase ~., data = oj.train, kernel = 'linear', cost = .01)
+summary(svm_oj)
+```
+
+What are the training and test error rates
+
+```{r}
+svm_pred = predict(svm_oj)
+table(svm_pred, oj.train$Purchase)
+mean(svm_pred != oj.train$Purchase)
+```
+.169 error rate
+
+```{r}
+svm_pred = predict(svm_oj, oj.test)
+table(svm_pred, oj.test$Purchase)
+mean(svm_pred != oj.test$Purchase)
+```
+.17 error rate
+
+Use `tune()` function to select optimal cost. Consider values .01 to 10
+
+```{r}
+set.seed(927)
+cost = 10^seq(-2,2, by = .25)
+svm_res = tune(svm, Purchase ~., data = oj.train, ranges = list(cost = cost), kernel = 'linear')
+summary(svm_res)
+```
+
+Compute training error and test error using new value for cost
+
+```{r}
+svm_best_mod = svm_res$best.model
+train_pred = predict(svm_best_mod)
+table(train_pred, oj.train$Purchase)
+mean(train_pred != oj.train$Purchase)
+```
+.15 error
+
+Try on test
+```{r}
+test_pred = predict(svm_best_mod, oj.test)
+table(test_pred, oj.test$Purchase)
+mean(test_pred != oj.test$Purchase)
+```
+higher error lul
+
+Use radial instead
+```{r}
+svm_rad = svm(Purchase ~., data = oj.train, kernel = 'radial')
+rad_pred = predict(svm_rad)
+table(rad_pred)
+mean(rad_pred != oj.train$Purchase)
+```
+Rad on test data
+```{r}
+svm_rad = svm(Purchase ~., data = oj.test, kernel = 'radial')
+rad_pred = predict(svm_rad, oj.test)
+table(rad_pred, oj.test$Purchase)
+mean(rad_pred != oj.test$Purchase)
+```
+Lowest error so far
+
+
+Use polynomial degree
+
+```{r}
+svm_poly = svm(Purchase ~ ., data = oj.train, kernel = 'polynomial', d = 2)
+poly_pred = predict(svm_poly)
+table(poly_pred, oj.train$Purchase)
+mean(poly_pred != oj.train$Purchase)
+```
+
+```{r}
+svm_poly = svm(Purchase ~ ., data = oj.test, kernel = 'polynomial', d = 2)
+poly_pred = predict(svm_poly)
+table(poly_pred, oj.test$Purchase)
+mean(poly_pred != oj.test$Purchase)
+```
+
+Radial SVM produced the lowest error
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

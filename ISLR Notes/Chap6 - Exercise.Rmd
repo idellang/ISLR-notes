@@ -1,0 +1,400 @@
+---
+title: "Chap6 - Exercise"
+author: "Me"
+date: "8/12/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r}
+library(tidyverse)
+library(broom)
+x = rnorm(100)
+eps = rnorm(100)
+b_0 = 2
+b_1 = 2
+b_2 = .5
+b_3 = .5
+
+y = b_0 + b_1*x + b_2 * x^2 + b_3 * x^3 + eps
+```
+
+
+```{r}
+plot(x, y)
+```
+
+
+```{r}
+library(leaps)
+data.frame(x,y)
+regsubset_full = regsubsets(y ~ poly(x, 10, raw = T), data = data.frame(x,y), nvmax = 11)
+reg_summary = summary(regsubset_full)
+```
+
+
+```{r}
+names(reg_summary)
+# Set up a 2x2 grid so we can look at 4 plots at once
+par(mfrow = c(2,2))
+plot(reg_summary$rss, xlab = "Number of Variables", ylab = "RSS", type = "l")
+plot(reg_summary$adjr2, xlab = "Number of Variables", ylab = "Adjusted RSq", type = "l")
+
+# We will now plot a red dot to indicate the model with the largest adjusted R^2 statistic.
+# The which.max() function can be used to identify the location of the maximum point of a vector
+adj_r2_max = which.max(reg_summary$adjr2) # 11
+
+# The points() command works like the plot() command, except that it puts points 
+# on a plot that has already been created instead of creating a new plot
+points(adj_r2_max, reg_summary$adjr2[adj_r2_max], col ="red", cex = 2, pch = 20)
+
+# We'll do the same for C_p and BIC, this time looking for the models with the SMALLEST statistic
+plot(reg_summary$cp, xlab = "Number of Variables", ylab = "Cp", type = "l")
+cp_min = which.min(reg_summary$cp) # 10
+points(cp_min, reg_summary$cp[cp_min], col = "red", cex = 2, pch = 20)
+
+plot(reg_summary$bic, xlab = "Number of Variables", ylab = "BIC", type = "l")
+bic_min = which.min(reg_summary$bic) # 6
+points(bic_min, reg_summary$bic[bic_min], col = "red", cex = 2, pch = 20)
+```
+```{r}
+tidy(regsubset_full) %>%
+  gather(key = 'measures', value = 'values', r.squared, adj.r.squared, BIC, mallows_cp) %>%
+  group_by(measures) %>%
+  mutate(num_pred = row_number()) %>%
+  summarise(min = which.min(values),
+            max = which.max(values))
+
+```
+
+
+
+```{r}
+library(tidyverse)
+library(broom)
+library(patchwork)
+r2 = tidy(regsubset_full) %>%
+  mutate(num_pred = row_number()) %>%
+  ggplot(aes(num_pred, r.squared))+
+  geom_line()+
+  geom_point()+
+  geom_vline(xintercept = 10, color = 'red')
+
+BIC = tidy(regsubset_full) %>%
+  mutate(num_pred = row_number()) %>%
+  ggplot(aes(num_pred, BIC))+
+  geom_line()+
+  geom_point()+
+  geom_vline(xintercept = 3, color = 'red')
+
+adjr2 = tidy(regsubset_full) %>%
+  mutate(num_pred = row_number()) %>%
+  ggplot(aes(num_pred, adj.r.squared))+
+  geom_line()+
+  geom_point()+
+  geom_vline(xintercept = 9, color = 'red')
+
+cp = tidy(regsubset_full) %>%
+  mutate(num_pred = row_number()) %>%
+  ggplot(aes(num_pred, mallows_cp))+
+  geom_line()+
+  geom_point()+
+  geom_vline(xintercept = 4, color = 'red')
+
+(r2 + adjr2) / (BIC + cp)
+
+```
+
+
+```{r}
+regsubset_fwd = regsubsets(y ~ poly(x, 10, raw = T), data = data.frame(x,y), nvmax = 11, method = 'forward')
+reg_summary_fwd = summary(regsubset_full)
+```
+
+```{r}
+tidy(regsubset_fwd) %>%
+  gather(key = 'measures', value = 'values', r.squared, adj.r.squared, BIC, mallows_cp) %>%
+  group_by(measures) %>%
+  mutate(num_pred = row_number()) %>%
+  summarise(min = which.min(values),
+            max = which.max(values))
+
+```
+
+```{r}
+regsubset_bwd = regsubsets(y ~ poly(x, 10, raw = T), data = data.frame(x,y), nvmax = 11, method = 'backward')
+
+tidy(regsubset_bwd) %>%
+  gather(key = 'measures', value = 'values', r.squared, adj.r.squared, BIC, mallows_cp) %>%
+  group_by(measures) %>%
+  mutate(num_pred = row_number()) %>%
+  summarise(min = which.min(values),
+            max = which.max(values))
+
+
+```
+
+
+
+Fit a lasso model
+```{r}
+set.seed(1)
+
+data = data.frame(x,y)
+
+x = model.matrix(y ~ poly(x, 10, raw = T), data = data)[,-1]
+y = data$y
+
+
+train = data %>%
+  sample_frac(.5)
+
+test = data %>%
+  setdiff(train)
+
+x_train = model.matrix(y ~ poly(x, 10, raw = T), data = train)[,-1]
+x_test = model.matrix(y ~ poly(x, 10, raw = T), data = test)[,-1]
+
+y_train = train$y
+y_test = test$y
+```
+
+```{r}
+library(boot)
+library(glmnet)
+set.seed(1)
+cv.out = cv.glmnet(x_train, y_train, alpha = 1)
+plot(cv.out)
+```
+
+```{r}
+lambdamin = cv.out$lambda.min
+lambdamin
+```
+
+```{r}
+ridge_mod = glmnet(x_train, y_train, alpha=1)
+
+ridge_pred = predict(ridge_mod, s = lambdamin, newx = x_test)
+mean((ridge_pred - y_test)^2)
+```
+Refit the lasso using best lambda
+```{r}
+out  = glmnet(x,y, alpha = 1)
+coeff = predict(out, ridge_mod, s = lambdamin, type = 'coefficients')[1:11,]
+coeff[coeff !=0]
+```
+
+Try the solve the error of for 4 coefficients in regsubset_full
+
+```{r}
+coef = coef(regsubset_full, 8)
+test.mat = model.matrix(y ~ poly(x, 10, raw = T), data =test)
+y_test = test$y
+pred = test.mat[,names(coef)]%*%coef
+mean((pred-y_test)^2)
+```
+```{r}
+val.errors <- rep(NA, 10)
+for (ii in 1:10) {
+    coefi <- coef(regsubset_full, id = ii)
+    pred <- test.mat[, names(coefi)] %*% coefi
+    val.errors[ii] <- mean((y_test-pred)^2)
+}
+
+plot(val.errors, type = 'b')
+which(min(val.errors) == val.errors)
+```
+
+
+# Question 9
+
+```{r}
+library(ISLR)
+data(College)
+set.seed(11)
+train = sample(1:dim(College)[1], dim(College)[1] / 2)
+test <- -train
+College.train <- College[train, ]
+College.test <- College[test, ]
+```
+
+```{r}
+college_lm = lm(Apps ~ ., data = College.train)
+pred_lm = predict(college_lm, College.test)
+mean((College.test$Apps - pred_lm)^2)
+```
+Ridge regression
+```{r}
+set.seed(1)
+grid <- 10 ^ seq(4, -2, length = 100)
+x_train = model.matrix(Apps ~ ., data = College.train)[,-1]
+x_test = model.matrix(Apps ~ ., data = College.test)[,-1]
+y_train = College.train$Apps
+y_test = College.test$Apps
+
+cv.out = cv.glmnet(x_train, y_train, alpha = 0)
+plot(cv.out)
+```
+
+```{r}
+min_lambda = cv.out$lambda.min
+
+ridge_mod = glmnet(x_train, y_train, alpha = 0)
+ridge_pred = predict(ridge_mod, newx = x_test, s = lambdamin)
+mean((ridge_pred- y_test)^2)
+```
+
+Fit a lasso model with chosen lambda based on cross validation
+
+```{r}
+cv.out.lasso = cv.glmnet(x_train, y_train, alpha = 1)
+plot(cv.out.lasso)
+```
+
+```{r}
+lambda_min = cv.out.lasso$lambda.min
+
+lasso_mod = glmnet(x_train, y_train, alpha = 1)
+lasso_pred = predict(ridge_mod, newx = x_test, s = lambda_min)
+mean((lasso_pred- y_test)^2)
+```
+This is expected since probably most of the data are associated with the response
+
+Report the coefficients
+```{r}
+x = model.matrix(Apps ~ ., data = College)[,-1]
+y = College$Apps
+
+out = glmnet(x, y, alpha = 1) # Fit ridge regression model on full dataset
+coef = predict(out, type = "coefficients", s = lambda_min)[1:18,] # Display coefficients using lambda chosen by CV
+coef
+```
+
+Try PCR
+
+```{r}
+library(pls)
+
+set.seed(1)
+pcr_fit = pcr(Apps ~ . , data = College.train, scale = TRUE, validation = "CV")
+validationplot(pcr_fit)
+```
+
+```{r}
+summary(pcr_fit)
+```
+
+```{r}
+
+pred.pcr <- predict(pcr_fit, College.test, ncomp = 17)
+mean((pred.pcr - College.test$Apps)^2)
+```
+
+```{r}
+set.seed(1)
+pls_fit = plsr(Apps ~ . , data = College.train, scale = TRUE, validation = "CV")
+validationplot(pls_fit)
+```
+
+```{r}
+summary(pls_fit)
+```
+7 is the optimum number of principal components
+```{r}
+pred.pls <- predict(pls_fit, College.test, ncomp = 7)
+mean((pred.pls - College.test$Apps)^2)
+```
+
+Ridge performed the best
+
+Using Boston Data
+
+```{r}
+library(MASS)
+Boston.mat = model.matrix(crim ~ ., data = Boston)
+```
+
+using lm
+```{r}
+set.seed(1)
+train<-sample.int(nrow(Boston),size=nrow(Boston)*.5)
+test<--train
+
+x.train = Boston[train,]
+x.test = Boston[test,]
+y.train <- Boston$crim[train]
+y.test <- Boston$crim[test]
+```
+
+
+linear model
+```{r}
+library(tidyverse)
+lm = lm(crim ~., data = x.train)
+lm.pred = predict(lm, x.test)
+mean((lm.pred - y.test)^2)
+```
+best subset
+```{r}
+regfull_fit = regsubsets(crim ~ ., data = x.train, nvmax = ncol(Boston))
+regfull_fit_summary = summary(regfull_fit)
+#lowest BIC
+id = which.min(regfull_fit_summary$bic)
+full_fit_coef = coef(regfull_fit, id = id)
+
+test.mat = model.matrix(crim ~., data = x.test)
+
+regfull_fit_pred = test.mat[, names(full_fit_coef)] %*% full_fit_coef
+mean((regfull_fit_pred - y.test)^2)
+```
+Ridge regression
+```{r}
+mat.x.train = model.matrix(crim ~ ., data = x.train)[,-1]
+cv.out = cv.glmnet(mat.x.train, y.train, alpha = 0)
+lambda.min = cv.out$lambda.min
+ridge_mod = glmnet(mat.x.train, y.train, alpha = 0)
+
+ridge_pred = predict(ridge_mod, s = lambda.min, newx = test.mat[,-1])
+mean((ridge_pred - y.test)^2)
+```
+Try lasso
+
+
+
+```{r}
+cv.out.lasso = cv.glmnet(mat.x.train, y.train, alpha = 1)
+lambda.min.lasso = cv.out.lasso$lambda.min
+lasso_mod = glmnet(mat.x.train, y.train, alpha = 1)
+
+lasso_pred = predict(lasso_mod, s = lambda.min, newx = test.mat[,-1])
+mean((lasso_pred-y.test)^2)
+```
+
+```{r}
+library(pls)
+set.seed(1)
+pcr_fit = pcr(crim~., data = x.train, scale = TRUE, validation = "CV")
+validationplot(pcr_fit)
+```
+
+```{r}
+pcr.pred = predict(pcr_fit, x.test, ncomp = 9)
+mean((pcr.pred - y.test)^2)
+```
+
+```{r}
+out = glmnet(Boston.mat, Boston$crim, alpha = 1)
+coeff=  predict(out, type = "coefficients", s = lambda.min.lasso)[1:15,]
+coeff[coeff !=0]
+coeff[coeff ==0]
+```
+
+
+
+
+

@@ -1,0 +1,402 @@
+---
+title: "Chap 10 - PCA and Clustering"
+author: "Me"
+date: "8/21/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+#Principal component analysis
+
+In this lab, we perform PCA on USArrest dataset, which is part of the base R package. The rows contain 50 states in alphabetical order
+
+```{r}
+library(dplyr)
+library(ggplot2)
+library(ISLR)
+```
+
+
+```{r}
+states = row.names(USArrests)
+states
+```
+The columns of the dataset contain the four variables
+
+```{r}
+names(USArrests)
+```
+
+We first briefly examine the data, We notice that the variables have different means
+
+```{r}
+library(purrr)
+map_dbl(USArrests, mean)
+```
+Note that the `apply()` function allow us to apply a function, in this case the `mean()` to each row or column of dataset. The second input here denotes whether we wish to compute the mean of rows(1) or columns(2)
+
+We see that there are on average 3 times as many rapes as murders, and more than eight times as many as assaults as rapes. We can also use other function on apply
+
+```{r}
+apply(USArrests, 2, var)
+```
+
+Not surprisingly, the variables have vastly different variances: The urbanpop variable measures the percentage of population in each state living in urban area, which is not a comparable number to the number of rapes in each state per 100K individuals. If we failed to scale the variables before performing PCA, then most of the principal components that we observe would be driven by Assault since it has the largest mean and variance. Thus, it is important to standardize the variables to have a mean zero and standard deviation of one before performing PCA
+
+We now perform principal component analysis using the prcomp() function, which is one of the several functions in R that perform PCA
+
+```{r}
+pr.out = prcomp(USArrests, scale = T)
+```
+By default, the `prcomp()` function centers the variables to have a mean zero. By using `scale = T`, we scale the variables to have a standard deviation of one. The output of `prcomp()` contains a handful of useful quantities
+
+```{r}
+names(pr.out)
+```
+The center and scale components correspond to means and standard deviation of the variables that were used for scaling prior to implementing PCA
+
+```{r}
+pr.out$center
+pr.out$scale
+```
+The rotation matrix provides the principal component loadings; each column of `pr.out$rotation` contains the principal component loading vector
+
+```{r}
+pr.out$rotation %>%
+  as.data.frame()
+```
+We see that there are four distinct principal components. THis is to be expected because there are in general `min(n-1,p)` informative principal components.
+
+Using the `prcomp()` function, we do not need to explicitly multiply the data by the principal component loading vectors in order to obtain the principal component score vectors. Rather, the 50x4 matrix `x` has its columns the principal component score vectors. That is, the kth column is the kth principal component score vector
+
+```{r}
+pr.out$x %>%
+  as.data.frame()
+```
+
+We can plot the first two component as follows.
+```{r}
+biplot(pr.out, scale = 0)
+```
+The `scale = 0` argument in the biplot ensures that the arrows are scaled to represent the loadings; other values for scale give a slightly different biplots with different interpration
+
+Notice that this figure is a mirror image of Figure 10.1. Recall that the principal components are only unique up to a sign change, so we can reproduce the figure by making small changes
+
+```{r}
+pr.out$rotation = -pr.out$rotation
+pr.out$x = -pr.out$x
+biplot(pr.out, scale = 0)
+```
+
+The `prcomp()` function also outputs the standard deviation of each principal component. For instance, on the USArrest dataset, we can access these standard deviation as follows:
+
+```{r}
+pr.out$sdev
+```
+the variance obtained by each principal component is obtained by squaring this
+
+```{r}
+pr.var = pr.out$sdev^2
+pr.var
+```
+to compute the proportion of variance explained by each principal component, we simply divide the variance explained by each PC by the total variance
+
+```{r}
+pve = pr.var/(sum(pr.var))
+pve
+```
+We see that the first principal component explains 62% of the variance in the data, the next principal component explains 24.7% and so on. 
+
+```{r}
+plot(pve, xlab = 'Principal Component', ylab = 'Proportion of Variance Explained', ylim = c(0,1), type = 'b')
+```
+
+
+```{r}
+plot(cumsum(pve), xlab = 'Principal Component', ylab = 'Cumulative Proportion of Variance Explained', ylim = c(0,1), type = 'b')
+```
+
+
+#Clustering
+
+The function `kmeans()` performs K-means clustering in R. We begin with a simple simulated example in which there are truly two clusters in the data: the first 25 obs have a mean shift relative to next 25 obs
+
+```{r}
+set.seed(2)
+x = matrix(rnorm(50*2), ncol = 2)
+
+x[1:25,1] = x[1:25,1]+3
+x[1:25,2] = x[1:25,2] -4
+x = as.data.frame(x)
+```
+
+
+We nor perform K-means clustering with `k = 2`.
+
+```{r}
+km_out = kmeans(x, 2, nstart = 20)
+```
+
+The cluster assignments are contained in `km_out$cluster`
+
+```{r}
+km_out$cluster
+```
+The k-means perfectly separated the observations into two clusters, even though we did not supply any group information to `kmeans()`. We can plot the data with each observation collored according to its cluster
+
+```{r}
+library(ggplot2)
+library(dplyr)
+library(broom)
+
+assignments = augment(km_out, x)
+
+ggplot(data = assigmnents)+
+  geom_point(aes(V1, V2, color = .cluster))
+```
+Here, the observations can be easily plotted because they are two dimensional. If there were more than two variables, then we could instead perform PCA and plot the first two principal component score vectors.
+
+In this example, we knew that there were two clusters because we generated the data. However, for real data, in general we do not know the true number of clusters. We could instead perform K-means clustering on this example with `K=3`. If we do this, K-means clustering will split up two 'real' clusters since it has no information about them:
+
+```{r}
+km_out_3clust = kmeans(x, 3 , nstart = 20)
+
+```
+
+```{r}
+assign_3_clust = augment(km_out_3clust, x)
+
+assign_3_clust %>%
+  ggplot(aes(V1, V2, color = .cluster))+
+  geom_point()
+```
+
+To run `kmeans()` function in R with multiple initial cluster assignments, we use `nstart` argument. If a value of `nstart` greater than one is used, then K-means clustering will be performed using multiple random assignments, and the `kmeans()` function will report only the best results. here we compare using `nstart = 1`
+
+```{r}
+set.seed(3)
+km_out_single_run = kmeans(x, 3, nstart = 1)
+km_out_single_run$tot.withinss
+```
+
+to `nstart = 20`
+
+```{r}
+km_out_20_runs = kmeans(x, 3, nstart = 20)
+km_out_20_runs$tot.withinss
+```
+Note that `km_out$tot.withinss` is the total within cluster sum of squares which we seek to minimize by performing k-means clustering. The individual within cluster sum of squares are contained in the vector `km_out$withins`
+
+```{r}
+km_out_20_runs$withinss
+```
+It is generally recommended to always run clustering with a large value of `nstart`, such as 20 or 50 to avoid getting stuck in undesirable local optimum. 
+
+When performing k-means clustering, in addition to using multiple initial cluster assignments, it is also important to set a random seed using the `set.seed()` function. In this way, the initial cluster assignments can be replicated and the result of k-means is reproducible
+
+
+#Hierarchical Clustering
+
+The `hclust()` function implements the hierarchical clustering in R. In the following example, we use the data from the previous section to plot the hierchical clustering dendogram using complete, single, and average linkage clustering, with euclidian distance as dissimilarity measure. We begin by clustering observations using complete linkage. The `dist()` function is used to compute 50 by 50 inter-observation Euclidian distance matrix
+
+```{r}
+hc_complete = hclust(dist(x), method = 'complete')
+```
+
+We could just easily performed hierarchical clustering with average or single linkage instead
+
+```{r}
+hc_average = hclust(dist(x), method = 'average')
+hc_single = hclust(dist(x), method = 'single')
+```
+
+We can now plot the dendograms obtained using the usual `plot()` function. The numbers at the bottom of the plot identify each observation
+
+```{r}
+library(gridExtra)
+library(ggdendro)
+
+plot_complete = ggdendrogram(hc_complete, rotate = F, size = 2) + labs(title = 'Complete Linkage')
+plot_average = ggdendrogram(hc_average, rotate = F, size = 2) + labs(title = 'Average Linkage')
+plot_single = ggdendrogram(hc_single, rotate = F, size = 2) + labs(title = 'Single Linkage')
+
+grid.arrange(plot_complete, plot_average, plot_single)
+```
+To determine the cluster labels for each obs, we can use `cutree()` function
+
+```{r}
+cutree(hc_complete, 2)
+cutree(hc_average,2)
+cutree(hc_single, 2)
+```
+For this data, complete and average linkage generally separate obs into their correct groups. However, single linkage identifies one point as belonging to its own cluster. A more sensible answer when four clusters are selected, still there are two singletons
+
+```{r}
+cutree(hc_single,4)
+```
+
+To scale variables before performing hierarchical clustering of the observations, we can use `scale()` function:
+
+```{r}
+xsc = scale(x)
+
+ggdendrogram(hclust(dist(xsc), method = 'complete'), rotate = F, size = 2) + labs(title = 'Complete linkage with Scaled Features')
+```
+Correlation based distance can be computed using the `as.dist()` function, which converts arbitrary square symmetric matrix into a form that the `hclust()` function recognizes as matrix. However, this only makes sense for the data with **at least 3 features** since absolute correlation between any two observation with measurements on two features is always 1. Let's generate and cluster 3D dataset
+
+```{r}
+library(ggthemes)
+x = matrix(rnorm(30*3), ncol = 3)
+x_with_correlation_distance = as.dist(1 - cor(t(x)))
+
+ggdendrogram(hclust(x_with_correlation_distance, method = 'complete'), rotate = F, size = 2) + labs(title = 'complete linkage with correlation based distance') + theme_tufte()
+```
+
+#NC160 data example
+
+Unsupervised learning techniques are often used in the analysis of genomic data. In this portion of the lab, we'll see how hierarchical and kmeans clustering compare on `NCI60` cancer cell line microarray data, which consists of 6830 gene expression measurements of 64 cancer cell lines
+
+```{r}
+library(ISLR)
+names(NCI60)
+nci_labels =NCI60$labs
+nci_data = NCI60$data
+```
+
+
+Each cell line is labeled with a cancer type. We'll ignore the cancer types in performing clustering, as these are unsupervised techniques. After performing clustering, we'll use this column to see the extent to which these cancer types agree with the results of these unsupervised techniques
+
+the Data has 64 rows and 6830 cols
+
+```{r}
+dim(nci_data)
+```
+```{r}
+table(nci_labels)
+```
+
+#PCA on the NCI60 data
+
+We first perform PCA on the data after scaling the varaible to have standard deviation of one
+
+```{r}
+pr.out = prcomp(nci_data, scale = T)
+```
+
+We now plot the first few principal component scores, in order to visualize the data. The obs corresponding to a given cancer type will be plotted on the same color, so that we can see to what extent the observations within a cancer type are similar to each other. We first create a simple function that assigns a distinct color to each element of a numeric vector
+
+```{r}
+cols = function(vec){
+  cols = rainbow(length(unique(vec)))
+  return(cols[as.numeric(as.factor(vec))])
+}
+```
+
+Note that the rainbow() function takes as its argument as positive integer and returns a vector containing that number of distinct colors. We can now plot the principal component score vectors
+
+```{r}
+par(mfrow = c(1,2))
+plot(pr.out$x[,1:2], col = cols(nci_labels), pch = 19, xlab = 'Z1', ylab = 'Z2')
+plot(pr.out$x[,c(1,3)], col = cols(nci_labels), pch = 19, xlab = 'Z1', ylab = 'Z3')
+```
+On the whole, cell lines corresponding to a single cancer type tend to have similar values on the first few principal component score vectors. This indicates that cell lines from same cancer type tend to have pretty similar gene expression levels.
+
+We can obtain a summary of PVE using `summary()` method
+
+```{r}
+summary(pr.out)
+```
+Using the `plot()` function, we can also plot the variance explained by few principal components
+
+```{r}
+plot(pr.out)
+```
+
+Note that the height of each bar is the same as squaring each element of the deviation. However it is more informative to plot PVE of each principal component and cumulative PVE of each principal plot
+
+```{r}
+pve = 100*pr.out$sdev^2/sum(pr.out$sdev^2)
+par(mfrow = c(1,2))
+plot(pve, type = 'o', ylab = 'PVE', xlab = 'Principal Component', col = 'blue')
+plot(cumsum(pve), type = 'o', ylab = 'Cumulative PVE', xlab = 'Principal Component', col = 'brown3')
+```
+Note that the elements of pve can be computed directly from summary. 
+
+```{r}
+summary(pr.out)$importance[2,]
+```
+
+We see that together, the first seven PC explain around 40% of variance in the data. This is not a huge amount of the variance. However, looking at the screeplot, we see that while each of seven explain substantial amount variance, there is a marked decrease in the variance explained by further components. There is an elbow after seventh principal component. This suggest that there may be little benfit to examining more than 7. 
+
+# Clustering the observations
+
+We now proceed to hierchically cluster the cell lines in the `NCI60` data with the goal of finding out whether or not the observations cluster into distinct types of cancer. To begin, we standardize the variables to have a mean zero and standard deviation of one. This step is optional, and need to be performed only if we want each gene to be on the same scale
+
+```{r}
+scale_nci_data = scale(nci_data)
+```
+
+
+We now perform hierarchical clustering of observations using complete, single, and average linkages. We'll use the standard euclidian distance as the dissimilarity measure:
+
+```{r}
+nci_hc_complete = hclust(dist(scale_nci_data), method = 'complete')
+nci_hc_average = hclust(dist(scale_nci_data), method = 'average')
+nci_hc_single = hclust(dist(scale_nci_data), method = 'single')
+
+plot_complete_nci = ggdendrogram(nci_hc_complete, rotate = F, size = 2) + labs(title = 'NCI: Complete linkage')
+plot_average_nci = ggdendrogram(nci_hc_average, rotate = F, size = 2) + labs(title = 'NCI: Average linkage')
+plot_single_nci = ggdendrogram(nci_hc_single, rotate = F, size = 2) + labs(title = 'NCI: Single linkage')
+
+grid.arrange(plot_complete_nci, plot_average_nci, plot_single_nci)
+```
+
+We see that the choice of linkage certainly affects the results obtained. Typically ,single linkage will tend to yield trailing clusters: very large clusters onto which individuals obs attach one by one. On the other hand, average and complete linkage tend to be more balance, attractive clusters. For this reason, complete and average linkage are generally more preferred. Clearly, cell lines within a single cancer type do tend to cluster together, although the clustering is not perferct. 
+
+Let's use our complete linkage hierarchical clustering for the analysis. We can cut the dendogram at the height that will yield a particular number say 4:
+
+```{r}
+hc_clusters  = cutree(nci_hc_complete, 4)
+table(nci_labels, hc_clusters)
+```
+There are some clear patterns. All the leukemia cell lines fall under cluster 3, while breast cancer lines are spread out over 3 different clusters. We can plot the cut on dendogram that produces these 4 clusters using `geom_hline()`, which draw horizontal line on top of our plot
+
+```{r}
+ggdendrogram(nci_hc_complete, rotate = F, size = 2)+
+  labs(title = 'NCI: Complete linkage')+
+  geom_hline(yintercept = 139, color='red')
+```
+
+Printing the output of `hclust` gives a useful brief summary of the object:
+
+```{r}
+nci_hc_complete
+```
+
+We claimed earlier that k-means clustering and hierarchical clustering with the dendogram cut off obtain the same number of clusters can yield very different results. How do these `NCI60` hierarchical results compare to what we get if we perform K-means clustering with `k=4`?
+
+```{r}
+set.seed(2)
+km_out = kmeans(scale_nci_data, 4, nstart = 20)
+km_clusters = km_out$cluster
+```
+
+use confusion matrix to compare the differences in how two methods assigned obs to clusters
+
+```{r}
+table(km_clusters, hc_clusters)
+```
+We see that the four clusters obtained using hierarchical clustering and kmeans are different. Cluster2 in kmeans is identical to cluster 1 in hierarchical clustering. 
+
+
+
+
+
+
+
+
+
+

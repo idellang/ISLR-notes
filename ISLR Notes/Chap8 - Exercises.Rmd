@@ -1,0 +1,477 @@
+---
+title: "Chap8 - Exercises"
+author: "Me"
+date: "8/17/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(tree)
+library(dplyr)
+library(ISLR)
+library(ggplot2)
+library(randomForest)
+library(ISLR)
+library(MASS)
+```
+
+
+```{r}
+set.seed(1)
+train = sample(1:nrow(Boston), nrow(Boston)/2)
+boston_train = Boston[train,]
+boston_test = Boston[-train,]
+```
+
+Try different values of mtry and ntree.
+
+```{r}
+set.seed(927)
+mtries = 2:(ncol(Boston)-1)
+trees = seq(25, 500, by = 25)
+errors = matrix(
+  nrow = length(trees),
+  ncol = length(mtries)
+)
+
+for (i in seq_along(mtries)){
+  mtry = mtries[i]
+  for (j in seq_along(trees)){
+    ntrees = trees[j]
+    bag.boston = randomForest(medv ~ ., data = boston_train)
+    bag_pred = predict(bag.boston, newdata = boston_test)
+    errors[j,i] = mean((bag_pred - boston_test$medv)^2)
+  }
+}
+
+errors
+```
+```{r}
+library(tidyr)
+library(dplyr)
+errors_df = data.frame(errors)
+sequence = seq(25, 500, by = 25)
+length(sequence)
+rownames(errors_df) = sequence
+colnames(errors_df) = 2:13
+
+errors_df %>%
+  gather(key = 'mtry', value = 'error') %>%
+  group_by(mtry) %>%
+  mutate(trees = seq(25,500, by = 25)) %>%
+  ggplot(aes(trees, error, color = mtry))+
+  geom_line()+
+  geom_point()
+  
+```
+
+```{r}
+errors_df %>%
+  gather(key = 'mtry', value = 'error') %>%
+  group_by(mtry) %>%
+  mutate(trees = seq(25,500, by = 25)) %>%
+  arrange(error)
+```
+
+
+It appears that variable of 7 and trees of 250 has the lowest eror. 
+
+8. In the lab, a classification tree was applied to `Carseats` dataset after converting `Sales` to qualitative response variable. Now we will seek to predict `Sales` using regression tree and related approaches, treating the response as a qualitative variable
+
+Split the data into training and test set
+```{r}
+set.seed(1)
+Carseats$High = NULL
+
+carseats.train = Carseats %>%
+  sample_n(200)
+
+carseats.test = Carseats %>%
+  setdiff(carseats.train)
+```
+
+
+Fit a regression tree to the training set. Plot the tree, interpret the results. What MSE do you obtain
+
+```{r}
+tree_carseats = tree(Sales ~., data = carseats.train)
+summary(tree_carseats)
+```
+```{r}
+plot(tree_carseats)
+text(tree_carseats, pretty = 0)
+```
+Use cross validation to determine the optimal level of tree complexity. Does pruning the tree improved the test MSE?
+
+```{r}
+set.seed(1)
+cv_carseats = cv.tree(tree_carseats)
+cv_carseats
+
+plot(cv_carseats$size, cv_carseats$dev, type = 'b')
+```
+Lowest is at tree size of 9
+
+```{r}
+prune_carseats = prune.tree(tree_carseats, best = 9)
+summary(prune_carseats)
+plot(prune_carseats)
+text(prune_carseats, pretty = 0)
+```
+
+Compare test MSE between whole tree and 9 nodes
+
+```{r}
+pred1 = predict(tree_carseats, newdata = carseats.test)
+mean((pred1-carseats.test$Sales)^2)
+
+pred2 = predict(prune_carseats, newdata = carseats.test)
+mean((pred2-carseats.test$Sales)^2)
+```
+The test MSE is slightly higher for tree size of 9
+
+Use the bagging approach to analyze this data. what MSE do you obtain. use `importance()` function to determine which variables are important.
+
+```{r}
+bag_carseats = randomForest(
+  Sales ~. , 
+  data = carseats.train,
+  mtry = 10,
+  importance = T, #assess important of variables
+  ntrees = 500
+)
+
+bag_pred = predict(bag_carseats, newdata = carseats.test)
+mean((bag_pred - carseats.test$Sales)^2)
+```
+Using the bagging approach, we reduced the test MSE by 2.
+
+```{r}
+library(forcats)
+
+
+names = row.names(importance(bag_carseats))
+colnames(importance(bag_carseats))
+
+importance(bag_carseats) %>%
+  as.data.frame() %>%
+  mutate(names = names) %>%
+  gather(key = 'metric', value = 'value', -names) %>%
+  mutate(names = fct_reorder(names, value)) %>%
+  ggplot(aes(names, value))+
+  geom_col()+
+  facet_wrap(~metric, scales = 'free')+
+  coord_flip()
+```
+
+We may conclude that price and Shelveloc has both the highest importance
+
+Use random forest to analyze this data. What test MSE do you obtain. Use the importance() function to determine which variables are most important. Describe the effect of m, the number of variables at each split and the error rate obtained
+
+```{r}
+mtry = 1:10
+errors = double(length(mtry))
+set.seed(927)
+
+for (i in seq_along(mtry)){
+  m = mtry[i]
+  rf_mod = randomForest(Sales ~., data = carseats.train, mtry = m)
+  pred = predict(rf_mod, newdata = carseats.test)
+  errors[i] = mean((pred- carseats.test$Sales)^2)
+}
+
+plot(errors, type = 'b')
+```
+
+10 variables will result to lowest test error. This is basically the bagged model. Let's try 4 variables
+
+```{r}
+rf_carseats = randomForest(Sales ~., data = carseats.train, mtry = 4, importance = T)
+pred_rf = predict(rf_carseats, carseats.test)
+mean((pred_rf - carseats.test$Sales)^2)
+```
+The test error is 2.55. This is slightly higher to the test error using bagged model.
+
+```{r}
+names = importance(rf_carseats) %>%
+  row.names()
+
+importance(rf_carseats) %>%
+  as.data.frame() %>%
+  mutate(name = names) %>%
+  arrange(desc(IncNodePurity))
+```
+
+Again, price and shelveloc are the two most important variables
+
+
+
+### Question 9
+
+This problem involves the OJ dataset from the ISLR package
+
+```{r}
+library(ISLR)
+OJ
+```
+
+
+### Create a training set containing a random of sample 0f 800 samples and test set containing the remainder. 
+
+
+Split the data into trainign and test set
+```{r}
+set.seed(1)
+OJ.train = OJ %>%
+  sample_n(800)
+
+OJ.test = OJ %>%
+  setdiff(OJ.train)
+```
+
+Fit a tree to the training data, with `Purchase` as the response and the oher variables as predictors. Use the summary() function to produce summary statistics about the tree, and describe the results obtained. What is the training error rate. how many terminal nodes does the tree have? 
+```{r}
+tree_oj = tree(Purchase ~., data = OJ.train)
+summary(tree_oj)
+```
+The training error rate is .1588. It used 9 terminal nodes
+
+Type in the name of the tree object in order to get a detailed text output. Pick one of the terminal nodes and interpret the information displayed
+
+```{r}
+tree_oj
+```
+
+* means that it is a terminal node. Split criterion of the number 7, LoyalCH is 0.76. The number of observations on that branch is 261 with a deviance of 91.20. 
+
+Create plot of the tree, interpret the results
+```{r}
+plot(tree_oj)
+text(tree_oj, pretty = 0)
+```
+
+The variable with the highest effect on classification is Loyal CH. Loyalty to the brand is very important. If your loyalty is slightly below .25, Percent discount and price difference has an effect on the customer choice
+
+Predict the response and create a confusion matrix
+```{r}
+tree_oj_pred = predict(tree_oj, OJ.test, type = 'class')
+table(tree_oj_pred, OJ.test$Purchase)
+```
+.8276 accuracy
+
+Apply cv.tree() function to the training set in order to determine the optimal tree size
+
+```{r}
+tree_oj_cv = cv.tree(tree_oj, FUN = prune.misclass)
+plot(tree_oj_cv$size, tree_oj_cv$dev, type = 'b')
+```
+
+7 nodes has the lowest cross validation MSE
+
+```{r}
+tree_prune_oj = prune.misclass(tree_oj, best = 7)
+summary(tree_prune_oj)
+plot(tree_prune_oj)
+text(tree_prune_oj, pretty = 0)
+```
+
+Training error for 7 node tree is higher. Let's check the test error
+
+```{r}
+tree_prune_oj_pred = predict(tree_prune_oj, newdata = OJ.test, type = 'class')
+table(tree_prune_oj_pred, OJ.test$Purchase)
+```
+.831 accuracy. this is slightly higher with lesser model
+
+
+## We now use boosting to predict Salary in Hitters data set
+
+Remove the observations with unknown salary and then log transform the salaries
+
+create a training set of 200 obs, and leave the remaining for test set
+
+```{r}
+hitters = Hitters %>%
+  filter(!is.na(Salary)) %>%
+  mutate(Salary = log(Salary))
+
+hitters.train = hitters %>%
+  sample_n(200)
+
+hitters.test = hitters %>%
+  setdiff(hitters.train)
+```
+
+
+Perform a boosting on the training set with 1000 trees for a range of value of the shrinkage parameter lambda. Produce a plot with different shrinkage values on the x-axis and the corresponding training set MSE on the y-axis
+
+```{r}
+library(gbm)
+
+pows <- seq(-10, -0.2, by = 0.1)
+shrinkages <- 10^pows
+errors = double(length(shrinkages))
+
+for (i in seq_along(shrinkages)){
+  s = shrinkages[i]
+  boost.mod = gbm(Salary ~., data = hitters.train, distribution = 'gaussian', n.trees = 1000, shrinkage = s)
+  boost_pred = predict(boost.mod, newdata = hitters.test, n.trees = 1000)
+  errors[i] = mean((boost_pred - hitters.test$Salary)^2)
+}
+
+data.frame(shrinkages, errors) %>%
+  ggplot(aes(shrinkages, errors))+
+  geom_line()+
+  geom_point()+
+  scale_x_log10()
+```
+Check the value of minimum lambda
+
+```{r}
+data.frame(shrinkages, errors) %>%
+  arrange(abs(errors))
+```
+
+Produce a plot of different shrinkage values on the x-axis and the corresponding test set MSE on the y-axis
+
+```{r}
+set.seed(927)
+pows <- seq(-10, -0.2, by = 0.1)
+shrinkages <- 10^pows
+test.errors = double(length(shrinkages))
+
+for (i in seq_along(shrinkages)){
+  s = shrinkages[i]
+  boost.mod = gbm(Salary ~., data = hitters.train, distribution = 'gaussian', n.trees = 1000, shrinkage = s)
+  boost_pred = predict(boost.mod, newdata = hitters.test, n.trees = 1000)
+  test.errors[i] = mean((boost_pred - hitters.test$Salary)^2)
+}
+
+plot(shrinkages, test.errors, type = 'l', log = 'x')
+```
+```{r}
+data.frame(shrinkages, test.errors) %>%
+  arrange(abs(test.errors))
+```
+
+
+Compare test MSE with the methods before
+
+```{r}
+lm.mod = lm(Salary ~., data = hitters.train)
+summary(lm.mod)
+lm.pred = predict(lm.mod, newdata = hitters.test)
+mean((lm.pred - hitters.test$Salary)^2)
+```
+
+Using lasso regression
+```{r}
+library(glmnet)
+
+x.train = model.matrix(Salary~., hitters.train)[,-1]
+y.train = hitters.train$Salary
+x.test = model.matrix(Salary~., hitters.test)[,-1]
+y.test = hitters.test$Salary
+
+lasso.cv = cv.glmnet(x.train, y.train, alpha = 1)
+bestlam = lasso.cv$lambda.min
+lasso.mod = glmnet(x.train, y.train, alpha = 1)
+lasso_pred = predict(lasso.mod, s = bestlam, newx = x.test)
+mean((lasso_pred - y.test)^2)
+```
+
+```{r}
+best.shrink = data.frame(shrinkages, test.errors) %>%
+  arrange(test.errors) %>%
+  filter(test.errors == min(test.errors)) %>%
+  .$shrinkages
+
+boost.mod = gbm(Salary ~., data = hitters.train, distribution = 'gaussian', n.trees = 1000, shrinkage = best.shrink)
+boost_pred = predict(boost.mod, newdata = hitters.test, n.trees = 1000)
+mean((boost_pred - hitters.test$Salary)^2)
+```
+
+We can see that boosting outperformed the two
+
+Which variables appear to be the most important predictor
+```{r}
+summary(boost.mod, plotit = F)
+```
+
+
+CAtBat and CRBI are the two most important variables
+
+Now apply bagging to the dataset. What is the test MSE
+```{r}
+library(randomForest)
+bag.mod = randomForest(Salary ~., data = hitters.train, mtry = ncol(Hitters)-1)
+bag_pred = predict(bag.mod, newdata = hitters.test)
+mean((bag_pred-hitters.test$Salary)^2)
+```
+Bagged model is better. 
+
+
+
+#This question uses the Caravan Dataset
+
+Create a training set consisting of the first 1,000 obs and test consisting remaining obs
+```{r}
+caravan_train= Caravan %>%
+  sample_n(1000) %>%
+  mutate(Purchase = ifelse(Purchase == 'Yes',1,0))
+
+caravan_test = Caravan  %>%
+  mutate(Purchase = ifelse(Purchase == 'Yes',1,0))%>%
+  setdiff(caravan_train)
+```
+
+Fit a boosting model to the training set with Purchase as the response and other variables as predictors. Use 1000 trees and shrinkage value of 0.01. Which predictors appear to be important
+
+```{r}
+
+boost_mod = gbm(Purchase ~. ,data = caravan_train, distribution = 'bernoulli', n.trees = 1000, shrinkage = .01)
+summary(boost_mod)
+```
+
+
+
+```{r}
+boost_pred = predict(boost_mod, newdata = caravan_test, n.trees = 1000., type = 'response')
+boost_pred = ifelse(boost_pred > .2, 1, 0)
+table(boost_pred, caravan_test$Purchase)
+```
+.906 accuracy
+
+Try logistic
+
+```{r}
+library(class)
+x_train = caravan_train[,-ncol(Caravan)]
+y_train = caravan_train[,ncol(Caravan)]
+x_test = caravan_test[,-ncol(Caravan)]
+y_test = caravan_test[,ncol(Caravan)]
+
+knn.pred = knn(x_train, x_test, y_train, k = 2)
+table(knn.pred, y_test)
+```
+.88
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

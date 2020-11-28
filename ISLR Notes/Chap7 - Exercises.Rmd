@@ -1,0 +1,486 @@
+---
+title: "Chap7 - Exercises"
+author: "Me"
+date: "8/13/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(ISLR)
+library(MASS)
+library(tidyverse)
+```
+
+We tried different values of i
+```{r}
+library(boot)
+set.seed(1)
+error = double(10)
+for (i in 1:10){
+  glm.fit = glm(wage ~ poly(age,i), data = Wage)
+  error[i] = cv.glm(Wage, glm.fit, K = 10)$delta[1]
+  
+}
+
+plot(error, type = 'b')
+points(which.min(error), error[which.min(error)], col = 'red')
+```
+
+```{r}
+library(broom)
+lm.mods<-list()
+for(i in 1:10) {
+  lm.fit <- lm(wage ~ poly(age,i),data=Wage)
+  lm.mods[[i]] <- lm.fit
+}
+
+
+anova(lm.mods[[1]], lm.mods[[2]], lm.mods[[3]], lm.mods[[4]],lm.mods[[5]],
+      lm.mods[[6]],lm.mods[[7]],lm.mods[[8]],lm.mods[[9]],lm.mods[[10]])
+```
+From the anova test, it seems that the model with 4 degree polynomial can be already considered.
+
+```{r}
+library(modelr)
+
+age_grid = Wage %>%
+  data_grid(age) %>%
+  unlist() %>%
+  as.numeric()
+
+fit = lm(wage ~ poly(age,4), data = Wage)
+preds_lm_fit = predict(fit, newdata = list(age = age_grid))
+
+ggplot()+
+  geom_point(data = Wage, aes(x = age, y = wage))+
+  geom_line(aes(x = age_grid, y = preds_lm_fit), color = 'red')
+```
+We choose a simpler model so we choose 4.
+
+Fit a step function to predict “wage” using “age”, and perform cross-validation to choose the optimal number of cuts. Make a plot of the fit obtained.
+
+```{r}
+set.seed(1)
+errors = double(19)
+for (i in 2:20){
+  Wage$age.cut = cut(Wage$age, i)
+  fit_step = glm(wage~age.cut, data = Wage)
+  errors[i] = cv.glm(Wage, fit_step, K = 10)$delta[1]
+}
+
+errors = errors[-1]
+
+plot(2:20, errors, type = 'b')
+points(which.min(errors)+1, errors[which.min(errors)], col = 'red')
+
+```
+Fit data using 15 cuts
+
+```{r}
+fit_step_15 = glm(wage~ cut(age, 16), data = Wage)
+
+preds = predict(fit_step_15, newdata = list(age = age_grid))
+
+ggplot()+
+  geom_point(data = Wage, aes(x = age, y = wage))+
+  geom_line(aes(x = age_grid, y = preds), color = 'red')
+```
+
+
+Question 7
+
+The “Wage” data set contains a number of other features nor explored in this chapter, such as marital status (“marit1”), job class (“jobclass”), and others. Explore the relationships between some of these other predictors and “wage”, and use non-linear fitting techniques in order to fit flexible models to the data. Create plots of the results obtained, and write a summary of your findings.
+```{r}
+summary(Wage$maritl)
+summary(Wage$jobclass)
+
+Wage %>%
+  ggplot(aes(x = jobclass, y = wage, fill = maritl))+
+  geom_boxplot()
+```
+Married people earned more
+
+Let's try different gam models
+```{r}
+library(gam)
+fit0 = gam(wage ~ lo(year, span = .7) + s(age, 5) + education, data = Wage)
+fit1 = gam(wage ~ lo(year, span = .7) + s(age, 5) + education +jobclass, data = Wage)
+fit2 = gam(wage ~ lo(year, span = .7) + s(age, 5)+ education + maritl, data = Wage)
+fit3 = gam(wage ~ lo(year, span = .7) + s(age,5) + education +maritl + jobclass, data = Wage)
+
+anova(fit0, fit1, fit2, fit3)
+```
+```{r}
+par(mfrow = c(2,3))
+plot(fit3, se = T, col = 'blue')
+```
+The anova test tells us that fit3, the model that includes all, has the best fit
+```{r}
+preds_gam_fit3 = predict(fit3, newdata = Wage)
+Wage1 = Wage %>%
+  mutate(preds = preds_gam_fit3) %>%
+  group_by(age) %>%
+  summarise(preds = mean(preds))
+
+ggplot()+
+  geom_point(data = Wage, aes(x = age, y = wage))+
+  geom_line(data = Wage1, aes(x = age, y = preds))
+```
+
+Q8. Fit some non linear models in Auto dataset. Is there an evidence for non linear relationships? 
+
+```{r}
+set.seed(1)
+pairs(Auto)
+```
+
+We begin with polynomial CV for mpg vs displacement
+
+```{r}
+set.seed(1)
+error = double(15)
+
+for (i in 1:15){
+  lm.fit = glm(mpg ~ poly(displacement, i), data = Auto)
+  error[i] = cv.glm(Auto, lm.fit, K = 10)$delta[1]
+}
+
+plot(error, type = 'b')
+points(which.min(error), error[which.min(error)], col = 'red', cex = 2, pch  = 20)
+```
+We can see that at d = 10 the error is lowest
+
+Use spline function
+```{r}
+library(splines)
+set.seed(1)
+error = double(15)
+
+for (i in 1:15){
+  fit = glm(mpg ~ ns(displacement, df = i), data = Auto)
+  error[i] = cv.glm(Auto, fit, K = 10)$delta[1]
+}
+
+plot(error, type = 'b')
+points(which.min(error), error[which.min(error)], col = 'red', cex = 2, pch  = 20)
+
+```
+We can see that the minimum degrees is 11. Better to use GAM
+
+```{r}
+fit_gam = gam(mpg ~ s(displacement, 4) + s(horsepower, 4), data = Auto)
+summary(fit_gam)
+```
+
+```{r}
+par(mfrow = c(1,2))
+plot(fit)
+```
+Check the mean error
+```{r}
+lm = lm(mpg ~ displacement + horsepower, data = Auto)
+Auto %>%
+  mutate(pred = predict(lm, Auto)) %>%
+  summarize(score = mean((pred - mpg)^2))
+```
+
+So mas maganda yung fit ng non linear model
+```{r}
+Auto %>%
+  mutate(pred = predict(fit, Auto)) %>%
+  summarize(score = mean((pred - mpg)^2))
+```
+
+
+Q9. This question uses the variables “dis” (the weighted mean of distances to five Boston employment centers) and “nox” (nitrogen oxides concentration in parts per 10 million) from the “Boston” data. We will treat “dis” as the predictor and “nox” as the response.
+
+Use the “poly()” function to fit a cubic polynomial regression to predict “nox” using “dis”. Report the regression output, and plot the resulting data and polynomial fits.
+
+
+```{r}
+library(MASS)
+
+fit = lm(nox ~ poly(dis, 3), data = Boston)
+summary(fit)
+```
+
+Plotting of the predicted model using 4 degree polynomial regression
+```{r}
+library(tidyverse)
+dis_grid = Boston %>%
+  data_grid(dis) %>%
+  unlist() %>%
+  as.numeric
+
+preds = predict(fit, list(dis = dis_grid), se = T)
+preds_df = data.frame(preds, dis = dis_grid) %>%
+  mutate(upper = fit + 2*se.fit,
+         lower = fit - 2*se.fit)
+
+ggplot()+
+  geom_jitter(data = Boston, aes(x = dis, y = nox), size = rel(1.5), alpha = .6)+
+  geom_line(data = preds_df, aes(x = dis, y = fit))+
+  geom_ribbon(data = preds_df, aes(x = dis, ymax = upper, ymin = lower), alpha = .3)
+```
+All polynomial terms are significant
+
+
+B. Plot the polynomial fits of different degrees and report residual sum of squares
+
+
+```{r}
+rss = double(10)
+
+for (i in 1:10){
+  fit = lm(nox ~ poly(dis, i), data = Boston)
+  rss[i] = sum(fit$residuals^2)
+}
+
+
+plot(rss, type = 'b')
+```
+
+RSS decreases with polynomial degree
+
+C. Perform cross validation or another approach to select optimal degree of polynomial
+
+```{r}
+cv.err = double(10)
+
+for (i in 1:10){
+  fit = glm(nox ~ poly(dis, i), data = Boston)
+  cv.err[i] = cv.glm(Boston, fit, K = 10)$delta[1]
+}
+
+plot(1:10, cv.err, type = 'b', xlab = 'Degree Polynomial', ylab = 'Estimated Test MSE')
+```
+Lowest Estimated MSE at polynomial degree 3
+
+use bs() function to fit a regression spline to predict nox using dis. Report the output using four degrees of freedom. How did you choose the knots?
+
+```{r}
+bs_fit = lm(nox ~ bs(dis, df = 4), data = Boston)
+summary(bs_fit)
+```
+```{r}
+pred = predict(bs_fit, list(dis = dis_grid))
+
+ggplot()+
+  geom_jitter(data = Boston, aes(dis, nox), alpha = .6)+
+  geom_line(aes(x = dis_grid, y = pred))
+```
+
+Now fit a regression spline for a range of degrees of freedom, and plot the resulting fits and report the resulting RSS. Describe the results obtained.
+
+```{r}
+rss = double(14)
+
+for (i in 3:16){
+  fit = lm(nox ~ bs(dis, df = i), data = Boston)
+  rss[i] = sum(fit$residuals^2)
+}
+
+rss = rss[3:16]
+
+plot(3:16, rss, type = 'b')
+```
+After 13, the RSS value became stagnant
+
+f. perform cross validation to select best degrees of freedom
+
+```{r}
+set.seed(1)
+cv = double(14)
+
+for (i in 3:16){
+  fit = glm(nox ~ bs(dis, df = i), data = Boston)
+  cv[i] = cv.glm(Boston, fit, K = 10)$delta[1]
+}
+
+plot(3:16, cv[c(-1,-2)], type = 'b')
+```
+6 is the lowest df
+
+
+```{r}
+library(patchwork)
+fit6 = glm(nox ~ bs(dis, df = 6), data = Boston)
+pred6 = predict(fit6, newdata = list(dis = dis_grid), se = T)
+
+preds_df = data.frame(pred6, dis = dis_grid) %>%
+  mutate(upper = fit + 2*se.fit,
+         lower = fit - 2*se.fit)
+
+a = ggplot()+
+  geom_point(data = Boston, aes(x = dis, y = nox))+
+  geom_line(data = preds_df, aes(x = dis, y = fit), color = 'red')+
+  geom_ribbon(data = preds_df, aes(x = dis, ymax = upper, ymin = lower), alpha = .5)
+
+
+fit4 = glm(nox ~ bs(dis, df = 4), data = Boston)
+pred4 = predict(fit4, newdata = list(dis = dis_grid), se = T)
+
+preds_df4 = data.frame(pred4, dis = dis_grid) %>%
+  mutate(upper = fit + 2*se.fit,
+         lower = fit - 2*se.fit)
+
+b = ggplot()+
+  geom_point(data = Boston, aes(x = dis, y = nox))+
+  geom_line(data = preds_df4, aes(x = dis, y = fit), color = 'red')+
+  geom_ribbon(data = preds_df4, aes(x = dis, ymax = upper, ymin = lower), alpha = .5)
+
+a+b
+```
+
+Q10 This relates to the college dataset
+
+Split the data into training and 
+
+
+```{r}
+library(leaps)
+set.seed(1)
+train <- sample(length(College$Outstate), length(College$Outstate) / 2)
+test <- -train
+College.train <- College[train, ]
+College.test <- College[test, ]
+
+fit_subset = regsubsets(Outstate ~. ,data = College.train, nvmax = 17, method = 'forward')
+summary(fit_subset)
+```
+
+```{r}
+plot(fit_subset, scale = 'bic')
+```
+```{r}
+tidy(fit_subset) %>%
+  gather(key = 'measure', value = value, adj.r.squared, BIC, mallows_cp) %>%
+  group_by(measure) %>%
+  mutate(num_pred = row_number()) %>%
+  ggplot(aes(num_pred, value))+
+  facet_wrap(~measure, scales = 'free')+
+  geom_line()+
+  geom_point()
+```
+Lets just use 6
+
+```{r}
+coefficients = coef(fit_subset, 6)
+coefficients
+```
+
+Fit a gam data using out of state tuition as a response and features selected in the previous 
+
+```{r}
+summary(College.train$Expend)
+gam_fit = gam(Outstate ~ Private + Room.Board + s(Terminal, 4) + lo(perc.alumni, span = .7) + s(Expend, 4) + s(Grad.Rate, df = 5) , data = College.train)
+par(mfrow = c(2,3))
+plot.Gam(gam_fit, se = T, col = 'steelblue')
+```
+
+Evaluate the model on the test set
+```{r}
+preds = predict(gam_fit, College.test)
+error = mean((College.test$Outstate-preds)^2)
+error
+```
+
+```{r}
+tss = mean((College.test$Outstate - mean(College.test$Outstate))^2)
+1 - (err/tss)
+
+```
+R^2 of .76 for gam with 6 predictors
+
+If I add PhD, the result will be similar so we opt to use the simpler model.
+
+```{r}
+summary(gam_fit)
+```
+
+
+Q11 - It was mentioned that GAMs are generally fit using a backfitting approach. The idea behind backfitting is actually quite simple. We will know explore back fitting in the context of linear regression
+
+SUppose that we would like to perform multiple linear regression, but we do not have a software to do so. Instead we only have a software to perform simple linear regression. There we will take the following approach: we repeatedly hold out all but one coefficient that estimate using simple linear regression. The process is continued until convergence - that is until coefficient estimates stop changing. We will try this in a toy example
+
+Generate a response Y and two predictors X1 and X2 with n = 100
+
+```{r}
+set.seed(927)
+x1 = rnorm(100,20,5)
+x2 = rnorm(100,10,5)
+
+y = 3 + 2*x1 + x2 + rnorm(100)
+```
+
+Initialize b1
+```{r}
+b1 = - 1
+```
+
+
+Keeping b1 fixed, Fit model
+
+Y - b2x2 = bo + b1x1+e
+
+```{r}
+a = y - b1 * x1
+b2 = lm(a ~ x2)$coef[2]
+```
+keeping b2 fixed, fit the model
+
+Y - B2x2 = Bo + B1X1 + e
+```{r}
+a = y - b2 *x2
+b1 = lm(a ~x1)$coef[2]
+```
+
+Write a for loop to repeat the previous steps 1000 times. The estimates for b0, b1, b2 at each iteration. Create a plot
+
+```{r}
+n = 100
+b0s = double(n)
+b1s = double(n)
+b2s = double(n)
+
+b0s[1] = mean(y - b1*x1 - b2*x2)
+b1s[1] = b1
+b2s[1] = b2
+
+for (i in 2:n){
+  a = y - b1*x1
+  b2 = lm(a ~x2)$coef[2]
+  a = y - b2*x2
+  b1 = lm(a ~ x1)$coef[2]
+  b0 = mean(y - b1*x1 - b2*x2)
+  b0s[i] = b0
+  b1s[i] = b1
+  b2s[i] = b2
+}
+
+matplot(x = 1:n, y = cbind(b0s,b1s, b2s), type = 'l', lty = c(2,2,2))
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

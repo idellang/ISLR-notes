@@ -1,0 +1,223 @@
+---
+title: "Chapter 5 - Exercise"
+author: "Me"
+date: "8/7/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r}
+library(ISLR)
+library(tidyverse)
+library(broom)
+library(modelr)
+```
+
+
+Validation
+```{r}
+set.seed(927)
+
+glm_prediction_run = function(){
+  train = Default %>%
+  sample_frac(.8)
+
+  test = Default %>% setdiff(train)
+
+  model_log = glm(default ~ income + balance + student, data = train, family = binomial)
+
+  test %>%
+  mutate(pred = predict(model_log, test, type = 'response')) %>%
+  mutate(pred_default = ifelse(pred >.5, 'Yes','No')) %>%
+  summarise(score = mean(pred_default == default)) %>%
+  .$score
+}
+
+glm_prediction_run()
+
+```
+
+Predict probability of default using income and balance. We now compute estimates for standard errors and estimates using bootstrap and using standard errors in glm(). 
+```{r}
+model_log_default = glm(default ~ income + balance , data = Default, family = binomial)
+summary(model_log_default)
+```
+
+```{r}
+#need na nasa data yung function
+model_log_function = function(data){
+  glm(default ~ income + balance , data = data, family = binomial)
+}
+
+Default %>%
+  bootstrap(50) %>%
+  mutate(model = map(strap, model_log_function)) %>%
+  mutate(params = map(model, tidy)) %>%
+  select(.id, params) %>%
+  unnest() %>%
+  group_by(term) %>%
+  summarise(estimate = mean(estimate), 
+            std.error = mean(std.error))
+```
+
+#Using weekly data
+
+```{r}
+Weekly
+model_logistic_weekly = glm(Direction ~ Lag2 + Lag1, data = Weekly, family = binomial)
+
+model_logistic_weekly2 = glm(Direction ~ Lag2 + Lag1, data = Weekly[-1,], family = binomial)
+
+Weekly[1,] %>%
+  mutate(prediction = predict(model_logistic_weekly2,Weekly[1,], type = 'response')) %>%
+  mutate(prediction_ = ifelse(prediction>.5, 'Up','Down'))
+```
+
+```{r}
+error = double(nrow(Weekly))
+for (i in 1:nrow(Weekly)){
+  mod = glm(Direction ~ Lag2 + Lag1, data = Weekly[-i,], family = binomial)
+  
+  error[i] = Weekly[i,] %>%
+    mutate(prediction = predict(model_logistic_weekly2,Weekly[i,], type = 'response')) %>%
+    mutate(prediction = ifelse(prediction>.5, 'Up','Down')) %>%
+    mutate(is_right = prediction != Direction) %>%
+    .$is_right
+}
+
+mean(error)
+```
+
+```{r}
+library(boot)
+error = cv.glm(Weekly, model_logistic_weekly, K = 10)
+error$delta
+```
+
+#Cross validation on a simulated dataset
+
+```{r}
+set.seed(1)
+x<-rnorm(100)
+y <- x-2*x^2 + rnorm(100)
+
+plot(x,y)
+```
+
+
+```{r}
+data = data.frame(
+  y = y,
+  x = x
+)
+cv.est = double(4)
+
+
+for (i in 1:4){
+  model = glm(y~poly(x,i), data = data)
+  cv.est[i] = cv.glm(data, model)$delta[1]
+}
+
+cv.est
+
+```
+
+
+
+```{r}
+sums <- list(4)
+for (i in 1:4){
+  cv.mod <- glm(y ~ poly(x,degree=i), data=data)
+  sums[[i]] <- summary(cv.mod)$coefficients
+}
+
+sums
+```
+
+#Boston Dataset
+
+```{r}
+library(tidyverse)
+library(MASS)
+Boston
+
+mu = mean(Boston$medv)
+
+mu.se <- sd(Boston$medv)/sqrt(nrow(Boston))
+
+mean_medv_function = function(data){
+  
+  data = as.data.frame(data)
+  data %>%
+    summarise(medv = mean(medv)) %>%
+    .$medv
+}
+
+std_medv_function = function(data){
+  
+  data = as.data.frame(data)
+  data %>%
+    summarise(sd = sd(medv)/sqrt(nrow(data))) %>%
+    .$sd
+}
+
+
+Boston %>%
+  bootstrap(100) %>%
+  mutate(mean = map_dbl(strap,mean_medv_function)) %>%
+  mutate(sd = map_dbl(strap, std_medv_function)) %>%
+  summarise(mean = mean(mean),
+            sd = mean(sd))
+```
+
+```{r}
+t.test(Boston$medv)
+```
+
+```{r}
+Boston %>%
+  bootstrap(100) %>%
+  mutate(mean = map_dbl(strap,mean_medv_function)) %>%
+  mutate(sd = map_dbl(strap, std_medv_function)) %>%
+  mutate(upper = mean + 2*(sd),
+         lower = mean - 2*(sd)) %>%
+  summarise(mean = mean(mean),
+            sd = mean(sd),
+            upper = mean(upper),
+            lower = mean(lower))
+```
+
+
+```{r}
+(mu.hat.boot<-boot(Boston$medv, function(x,i) mean(x[i]) , R=10000))
+```
+
+```{r}
+boot.ci(mu.hat.boot,type="norm")
+```
+
+```{r}
+boot(Boston$medv, function(x,i) quantile(x[i],probs=.1), R=10000)
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
